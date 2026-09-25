@@ -11,6 +11,14 @@ link should actually go, in a picker that opens under the pointer.
 - macOS 14 or later. Built and run on macOS 27, Apple Silicon.
 - Xcode with the macOS SDK. Swift 6.
 
+## Install
+
+```sh
+brew install -y --cask ttsalpha/tap/openwith && xattr -dr com.apple.quarantine /Applications/OpenWith.app
+```
+
+The app is not notarized, so Gatekeeper quarantines it; the `xattr` call clears that flag.
+
 ## What it does
 
 | | |
