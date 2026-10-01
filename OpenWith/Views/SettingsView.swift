@@ -6,7 +6,7 @@ struct SettingsPane: View {
 
     var body: some View {
         switch tab {
-        case .general: GeneralSettings().frame(width: 540, height: 268)
+        case .general: GeneralSettings().frame(width: 540, height: 320)
         case .browsers: BrowsersSettings().frame(width: 540, height: 404)
         case .rules: RulesSettings().frame(width: 540, height: 404)
         case .about: AboutSettings().frame(width: 540, height: 326)
@@ -35,13 +35,18 @@ struct GeneralSettings: View {
 
             Section {
                 Toggle("Always show the picker, even when a rule matches", isOn: $model.alwaysAsk)
+                Toggle("Apply rules to subdomains", isOn: $model.matchSubdomains)
                 Toggle(
                     "Open at Login",
                     isOn: Binding(get: { model.openAtLogin }, set: model.setOpenAtLogin)
                 )
             } footer: {
                 Footnote(
-                    "Hold ⌥ while clicking a link to do the same for just that one link."
+                    """
+                    Hold ⌥ while clicking a link to show the picker for that one link. \
+                    With subdomains applied, a rule on github.com also covers \
+                    gist.github.com.
+                    """
                 )
             }
 
@@ -190,37 +195,85 @@ private struct BrowserRow: View {
 struct RulesSettings: View {
     @Environment(AppModel.self) private var model
 
+    @State private var draft = ""
+    @State private var draftBrowser = ""
+    @State private var error: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if model.rules.isEmpty {
-                ContentUnavailableView {
-                    Label("No rules yet", systemImage: "list.bullet.rectangle")
-                } description: {
-                    Text("Tick Remember in the picker to send a domain straight to one browser.")
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    ForEach(model.rules) { rule in
-                        RuleRow(rule: rule)
+            Group {
+                if model.rules.isEmpty {
+                    ContentUnavailableView {
+                        Label("No rules yet", systemImage: "list.bullet.rectangle")
+                    } description: {
+                        Text("Tick Remember in the picker, or add a domain below.")
                     }
+                } else {
+                    List {
+                        ForEach(model.rules) { rule in
+                            RuleRow(rule: rule)
+                        }
+                    }
+                    .scrollContentBackground(.hidden)
+                    .background(.quinary, in: .rect(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8).strokeBorder(.separator, lineWidth: 0.5)
+                    )
                 }
-                .scrollContentBackground(.hidden)
-                .background(.quinary, in: .rect(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8).strokeBorder(.separator, lineWidth: 0.5)
-                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                HStack {
-                    Footnote("A rule covers its subdomains. The longest match wins.")
-                    Spacer(minLength: 12)
-                    Button("Remove All") {
-                        model.removeRules(Set(model.rules.map(\.domain)))
-                    }
+            HStack(spacing: 8) {
+                TextField("e.g. github.com", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(add)
+                    .onChange(of: draft) { _, _ in error = nil }
+                BrowserPicker(selection: $draftBrowser)
+                Button("Add", action: add)
+            }
+
+            HStack {
+                // The hint line doubles as the error line so nothing shifts.
+                if let error {
+                    Label(error, systemImage: "exclamationmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Footnote("The longest matching rule wins.")
                 }
+                Spacer(minLength: 12)
+                Button("Remove All") {
+                    model.removeRules(Set(model.rules.map(\.domain)))
+                }
+                .disabled(model.rules.isEmpty)
             }
         }
         .padding(20)
+        .onAppear {
+            if draftBrowser.isEmpty { draftBrowser = model.orderedBrowsers.first?.id ?? "" }
+        }
+    }
+
+    /// Add stays enabled and says what is wrong, rather than greying out and
+    /// leaving the reason to be guessed.
+    private func add() {
+        guard let key = DomainKey.key(forInput: draft) else {
+            error =
+                draft.trimmingCharacters(in: .whitespaces).isEmpty
+                ? "Type a domain first." : "Not a domain."
+            return
+        }
+        guard !model.rules.contains(where: { $0.domain == key }) else {
+            error = "\(key) already has a rule."
+            return
+        }
+        guard !draftBrowser.isEmpty else {
+            error = "No browser to send it to."
+            return
+        }
+        model.addRule(key, browserID: draftBrowser)
+        draft = ""
+        error = nil
     }
 }
 
@@ -228,13 +281,25 @@ private struct RuleRow: View {
     @Environment(AppModel.self) private var model
     let rule: Rule
 
+    @State private var domain: String
+    @FocusState private var isEditing: Bool
     @State private var isHovering = false
+
+    init(rule: Rule) {
+        self.rule = rule
+        _domain = State(initialValue: rule.domain)
+    }
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(rule.domain)
+            TextField("", text: $domain)
+                .textFieldStyle(.plain)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .focused($isEditing)
+                .onSubmit(commit)
+                .onChange(of: isEditing) { _, editing in
+                    if !editing { commit() }
+                }
 
             Spacer(minLength: 12)
 
@@ -245,22 +310,13 @@ private struct RuleRow: View {
                     .frame(width: 16, height: 16)
             }
 
-            Picker(
-                "",
+            BrowserPicker(
                 selection: Binding(
                     get: { rule.browserID },
                     set: { model.updateRule(rule.domain, browserID: $0) }
-                )
-            ) {
-                ForEach(model.orderedBrowsers) { browser in
-                    Text(browser.name).tag(browser.id)
-                }
-                if !model.orderedBrowsers.contains(where: { $0.id == rule.browserID }) {
-                    Text("Not installed").tag(rule.browserID)
-                }
-            }
-            .labelsHidden()
-            .frame(width: 150)
+                ),
+                missing: rule.browserID
+            )
 
             Button {
                 model.removeRules([rule.domain])
@@ -273,6 +329,42 @@ private struct RuleRow: View {
         }
         .padding(.vertical, 3)
         .onHover { isHovering = $0 }
+    }
+
+    /// Refused edits snap back, since the alternative is a field showing a key
+    /// that was never stored. Typing `www.github.com` over `github.com` is not
+    /// a refusal though: it normalises to what is already there.
+    private func commit() {
+        guard let key = DomainKey.key(forInput: domain) else {
+            domain = rule.domain
+            return
+        }
+        guard key != rule.domain else {
+            domain = key
+            return
+        }
+        if model.renameRule(rule.domain, to: key) == nil {
+            domain = rule.domain
+        }
+    }
+}
+
+private struct BrowserPicker: View {
+    @Environment(AppModel.self) private var model
+    @Binding var selection: String
+    var missing: String?
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(model.orderedBrowsers) { browser in
+                Text(browser.name).tag(browser.id)
+            }
+            if let missing, !model.orderedBrowsers.contains(where: { $0.id == missing }) {
+                Text("Not installed").tag(missing)
+            }
+        }
+        .labelsHidden()
+        .frame(width: 150)
     }
 }
 

@@ -24,7 +24,7 @@ The app is not notarized, so Gatekeeper quarantines it; the `xattr` call clears 
 | | |
 | --- | --- |
 | Picker at the pointer | macOS never tells an app where a link sat inside another app, so the panel opens at the cursor, which is where the click was |
-| Remember a site | Keyed on the exact host, covering everything under it, so a rule on `github.com` catches `gist.github.com`. Longest match wins; widen a key in Settings |
+| Remember a site | Keyed on the exact host, and reaching its subdomains unless that is turned off in Settings. Longest match wins |
 | `1`…`9`, `⎋`, `⌘C`, `⏎` | Pick by number, cancel, copy the link, or take the first browser |
 | Hold `⇧` | Opens a private window, for browsers that have a flag for one. Safari has none, so it stays inert there rather than quietly opening a normal window |
 | Hold `⌥` while clicking a link | Shows the picker even when a rule already matches |

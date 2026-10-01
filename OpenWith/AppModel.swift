@@ -10,6 +10,14 @@ final class AppModel {
         didSet { UserDefaults.standard.set(alwaysAsk, forKey: DefaultsKey.alwaysAsk) }
     }
 
+    /// Let a rule reach its subdomains, so one rule on github.com also takes
+    /// gist.github.com. On by default: it is what people mean by "this site".
+    var matchSubdomains = true {
+        didSet {
+            UserDefaults.standard.set(matchSubdomains, forKey: DefaultsKey.matchSubdomains)
+        }
+    }
+
     private(set) var rules: [Rule] = []
     private(set) var installedBrowsers: [Browser] = []
     private(set) var hiddenBrowserIDs: Set<String> = []
@@ -18,12 +26,12 @@ final class AppModel {
     /// Named in the UI, so "not default" says where links are going instead.
     private(set) var currentDefault: Browser?
     private(set) var openAtLogin = false
-    /// Claiming the handler and registering the login item can both be refused
-    /// by the system, and Settings is where that has to surface.
+    /// Claiming the handler and the login item can both be refused by macOS.
     private(set) var lastError: String?
 
     private enum DefaultsKey {
         static let alwaysAsk = "AlwaysAsk"
+        static let matchSubdomains = "MatchSubdomains"
         static let rules = "Rules"
         static let hiddenBrowsers = "HiddenBrowsers"
         static let browserOrder = "BrowserOrder"
@@ -41,7 +49,10 @@ final class AppModel {
 
     init() {
         let defaults = UserDefaults.standard
+        defaults.register(defaults: [DefaultsKey.matchSubdomains: true])
+
         _alwaysAsk = defaults.bool(forKey: DefaultsKey.alwaysAsk)
+        _matchSubdomains = defaults.bool(forKey: DefaultsKey.matchSubdomains)
         _hiddenBrowserIDs = Set(defaults.stringArray(forKey: DefaultsKey.hiddenBrowsers) ?? [])
         _browserOrder = defaults.stringArray(forKey: DefaultsKey.browserOrder) ?? []
         if let data = defaults.data(forKey: DefaultsKey.rules) {
@@ -110,12 +121,16 @@ final class AppModel {
     /// nil when the picker should come up.
     func route(_ url: URL) -> Browser? {
         guard !alwaysAsk, let host = url.host()?.lowercased() else { return nil }
-        // Longest matching domain wins, so a rule on gist.github.com can carve
-        // itself out of a broader github.com rule.
         guard
             let rule =
                 rules
-                .filter({ DomainKey.matches(rule: $0.domain, host: host) })
+                .filter({
+                    DomainKey.matches(
+                        rule: $0.domain,
+                        host: host,
+                        includingSubdomains: matchSubdomains
+                    )
+                })
                 .max(by: { $0.domain.count < $1.domain.count })
         else { return nil }
         return installedBrowsers.first { $0.id == rule.browserID }
@@ -125,6 +140,29 @@ final class AppModel {
         rules.removeAll { $0.domain == domain }
         rules.append(Rule(domain: domain, browserID: browserID))
         sortAndPersistRules()
+    }
+
+    /// Returns the stored key, or nil when the input is unusable or taken.
+    @discardableResult
+    func addRule(_ input: String, browserID: String) -> String? {
+        guard let key = DomainKey.key(forInput: input),
+            !rules.contains(where: { $0.domain == key })
+        else { return nil }
+        rules.append(Rule(domain: key, browserID: browserID))
+        sortAndPersistRules()
+        return key
+    }
+
+    /// The domain is the identity, so a clash is refused rather than merged.
+    @discardableResult
+    func renameRule(_ domain: String, to input: String) -> String? {
+        guard let key = DomainKey.key(forInput: input), key != domain,
+            !rules.contains(where: { $0.domain == key }),
+            let index = rules.firstIndex(where: { $0.domain == domain })
+        else { return nil }
+        rules[index].domain = key
+        sortAndPersistRules()
+        return key
     }
 
     func removeRules(_ domains: Set<String>) {
