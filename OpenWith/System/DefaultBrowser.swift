@@ -5,7 +5,6 @@ enum DefaultBrowser {
     private static let previousKey = "PreviousDefaultBrowser"
     private static let probe = URL(string: "https://example.com")!
 
-    /// Whoever is handling web links right now, which may well be us.
     static var current: Browser? {
         guard let url = NSWorkspace.shared.urlForApplication(toOpen: probe) else { return nil }
         return Browser(appURL: url)

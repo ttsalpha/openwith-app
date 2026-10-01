@@ -26,7 +26,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Delivered here whether the app was running or cold-started by the click.
     func application(_ application: NSApplication, open urls: [URL]) {
         // Read before anything can await: ⌥ is the escape hatch out of a saved
         // rule, and it is released the moment the browser comes up.

@@ -7,9 +7,7 @@ enum BrowserRegistry {
     /// which puts the browsers actually in use ahead of an alphabetical sort.
     ///
     /// Excluding ourselves is not cosmetic: OpenWith is the default handler, so
-    /// offering it as a target would route the click back into this picker. The
-    /// list also holds apps that are not browsers, since anything may register
-    /// the scheme; Settings hides those rather than this guessing.
+    /// offering it as a target would route the click back into this picker.
     static func installed() -> [Browser] {
         let mine = Bundle.main.bundleIdentifier?.lowercased()
         var seen: Set<String> = []
